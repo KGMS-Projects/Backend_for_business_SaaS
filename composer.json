@@ -3,7 +3,12 @@
     "name": "quantix/service-requests-api",
     "type": "project",
     "description": "Service Request & Approval API for a business SaaS platform (Quantix Laravel internship assignment).",
-    "keywords": ["laravel", "api", "workflow", "sanctum"],
+    "keywords": [
+        "laravel",
+        "api",
+        "workflow",
+        "sanctum"
+    ],
     "license": "MIT",
     "require": {
         "php": "^8.2",
@@ -35,7 +40,6 @@
             "composer install",
             "@php -r \"file_exists('.env') || copy('.env.example', '.env');\"",
             "@php artisan key:generate",
-            "@php -r \"file_exists('database/database.sqlite') || touch('database/database.sqlite');\"",
             "@php artisan migrate:fresh --seed --force"
         ],
         "test": [
