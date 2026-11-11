@@ -60,7 +60,7 @@ docker compose down
 #### Prerequisites
 * **PHP 8.2+** with extensions: `pdo_mysql` (or `pdo_sqlite`), `mbstring`, `zip`, `curl`
 * **Composer**
-* **MySQL** (via XAMPP, Laragon, or standalone) or **SQLite**
+* **MySQL** (via XAMPP, Laragon, or standalone) 
 
 #### Step 1: Install Dependencies
 ```bash
