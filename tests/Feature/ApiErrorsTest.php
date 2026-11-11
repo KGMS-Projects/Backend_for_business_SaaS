@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Route;
+use Laravel\Sanctum\Sanctum;
 use Tests\TestCase;
 
 /** Every failure under /api is JSON in the same envelope, whatever the client sends in its Accept header. */
@@ -95,7 +96,7 @@ class ApiErrorsTest extends TestCase
 
     private function signIn(?User $user = null): static
     {
-        \Laravel\Sanctum\Sanctum::actingAs($user ?? User::factory()->employee()->create());
+        Sanctum::actingAs($user ?? User::factory()->employee()->create());
 
         return $this;
     }

@@ -6,6 +6,7 @@ use App\Enums\RequestStatus;
 use App\Models\ServiceRequest;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Testing\TestResponse;
 use Tests\Concerns\BuildsOrganisation;
 use Tests\TestCase;
 
@@ -34,7 +35,7 @@ class RequestListingTest extends TestCase
     }
 
     /** @return list<string> */
-    private function titles(\Illuminate\Testing\TestResponse $response): array
+    private function titles(TestResponse $response): array
     {
         return collect($response->json('data'))->pluck('title')->sort()->values()->all();
     }

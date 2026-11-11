@@ -1,184 +1,222 @@
 # Service Request & Approval API
 
-Backend for an internal service-request module. **Employees** submit requests, **managers** approve, reject or
-return them, **operations** assigns an owner and completes the work. Every request has a clear status, an owner
-and a complete activity history, and the API enforces who may do what.
-
-> Built for the Quantix Laravel internship take-home. Laravel 12 (the brief asks for 11+) · PHP 8.2+ · Sanctum ·
-> SQLite by default (MySQL / PostgreSQL work too) · PHPUnit · Pint · Larastan level 8.
-
-| | |
-|---|---|
-| **Tests** | 251 tests / 1,044 assertions, run in ~3 s |
-| **Static analysis** | Larastan level 8, no baseline |
-| **Docs** | [`docs/openapi.yaml`](docs/openapi.yaml) · [`docs/postman_collection.json`](docs/postman_collection.json) · [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · [`docs/AI_AND_REFERENCES.md`](docs/AI_AND_REFERENCES.md) |
+> **Quantix - Laravel Internship Take-Home Assignment**  
+> Candidate Submission: Service Request & Approval API for a Business SaaS Platform  
+> Built with **Laravel 12** · **PHP 8.2+** · **MySQL / SQLite** · **Laravel Sanctum** · **PHPUnit**
 
 ---
 
-## Quick start (about 2 minutes)
+## Overview
 
-Requirements: PHP 8.2+ with `pdo_sqlite`, `mbstring`, `xml`, `curl`, and Composer 2.
+Hi! This repository contains my backend implementation for the internal service request and approval workflow module. 
 
-```bash
-composer setup          # install, copy .env, generate key, create SQLite file, migrate:fresh --seed
-php artisan serve       # API at http://localhost:8000
-php artisan queue:work  # second terminal: sends the notifications (see "Notifications")
-```
+The API supports three distinct user roles with strict permissions:
+1. **Employees:** Create, update, and submit requests for equipment, software, maintenance, or access.
+2. **Managers:** Review submitted requests from their direct reports and either approve, reject, or return them with feedback.
+3. **Operations:** Pick up approved requests, assign an owner, update status to *in progress*, and mark them *completed*.
 
-Prefer the individual commands?
+---
 
+## Features Implemented
+
+* **Clean State Machine:** A centralized status transition workflow (`draft` $\rightarrow$ `submitted` $\rightarrow$ `approved` $\rightarrow$ `assigned` $\rightarrow$ `in_progress` $\rightarrow$ `completed`). Invalid transitions return a clear `422 Unprocessable Content` response.
+* **Role-Based Authorization:** Custom Laravel Policies enforce who can see and modify each request. Managers can only view and act on their own direct reports' requests.
+* **Audit Trail & Activity Log:** Every state change, edit, and comment is automatically logged with the actor, previous state, new state, and timestamp.
+* **Asynchronous Notifications:** Queued notification jobs run after database commits to send alerts to the right users on status updates.
+* **SLA Tracking:** Approved requests calculate an SLA deadline based on priority (Urgent: 8h, High: 24h, Medium: 72h, Low: 120h), with an automated overdue flag.
+* **Comprehensive Testing:** 251 automated feature & unit tests covering the happy path, edge cases, permission checks, and validation rules.
+* **Interactive Documentation:** Ready-to-use Postman Collection (`docs/postman_collection.json`) and OpenAPI 3.0 specification (`docs/openapi.yaml`).
+
+---
+
+## Quick Setup Guide
+
+### Prerequisites
+* **PHP 8.2+** with extensions: `pdo_mysql` (or `pdo_sqlite`), `mbstring`, `zip`, `curl`
+* **Composer**
+* **MySQL** (via XAMPP, Laragon, or standalone) or **SQLite**
+
+---
+
+### Step 1: Install Dependencies
 ```bash
 composer install
-cp .env.example .env && php artisan key:generate
+```
+
+### Step 2: Configure Environment
+Copy `.env.example` to `.env` and generate the app key:
+```bash
+cp .env.example .env
+php artisan key:generate
+```
+
+### Step 3: Choose Your Database
+
+#### Option A: MySQL (Default in `.env`)
+1. Ensure your MySQL server is running (e.g., via XAMPP Control Panel).
+2. Configure your credentials in `.env`:
+   ```env
+   DB_CONNECTION=mysql
+   DB_HOST=127.0.0.1
+   DB_PORT=3306
+   DB_DATABASE=service_requests
+   DB_USERNAME=root
+   DB_PASSWORD=
+   ```
+3. Run migrations and seed data:
+   ```bash
+   php artisan migrate:fresh --seed
+   ```
+   *(If prompted that `service_requests` does not exist, type **yes** and Laravel will create it for you).*
+
+#### Option B: SQLite (Zero configuration)
+```bash
 touch database/database.sqlite
+# Set DB_CONNECTION=sqlite in .env
 php artisan migrate:fresh --seed
 ```
 
-**MySQL / PostgreSQL:** set `DB_CONNECTION=mysql|pgsql` and the `DB_*` values in `.env`, then `php artisan migrate:fresh --seed`.
+---
 
-### Run the tests and quality checks
+### Step 4: Start the Server & Queue Worker
 
+Run the local development server:
 ```bash
-composer test       # the whole suite (in-memory SQLite, nothing to configure)
-composer lint       # Pint, formatting check   (composer format fixes it)
-composer analyse    # Larastan, level 8
-composer check      # all three
+php artisan serve
 ```
+The API is now running at `http://localhost:8000`.
 
-### Seeded logins (password for every account: `password`)
-
-| Role | E-mail | Notes |
-|---|---|---|
-| Employee | `employee@example.com` (Eli) | reports to Maya |
-| Employee | `employee2@example.com` (Emma) | reports to Maya |
-| Employee | `employee3@example.com` (Nina) | reports to **Marcus** (other team; shows that managers can't cross teams) |
-| Manager | `manager@example.com` (Maya) | **two direct reports**: Eli and Emma |
-| Manager | `manager2@example.com` (Marcus) | one report: Nina |
-| Operations | `ops@example.com` (Olivia), `ops2@example.com` (Omar) | |
-
-`migrate:fresh --seed` creates **11 requests covering all 8 statuses** (2 draft, 3 submitted, returned, rejected,
-approved, assigned, in progress, completed). They are created by driving the real workflow, so each has a genuine
-history. One assigned request is deliberately overdue to show the SLA flag. Seeding does not queue notifications.
-
-### Try it
-
+*(Optional)* In a second terminal, run the queue worker to process asynchronous notifications:
 ```bash
-# 1. log in
-TOKEN=$(curl -s localhost:8000/api/login -H 'Accept: application/json' -H 'Content-Type: application/json' \
-  -d '{"email":"employee@example.com","password":"password"}' | php -r 'echo json_decode(stream_get_contents(STDIN))->data->token;')
-
-# 2. create a request and send it for review in one call
-curl -s localhost:8000/api/requests -H "Authorization: Bearer $TOKEN" -H 'Accept: application/json' -H 'Content-Type: application/json' \
-  -d '{"title":"New laptop","description":"Mine is five years old","category":"equipment","priority":"high","submit":true}'
+php artisan queue:work
 ```
-
-Or import `docs/postman_collection.json`: run **Auth** (three logins), then the **Employee → Manager → Operations**
-folders in order; tokens and the request id are stored in collection variables for you.
 
 ---
 
-## The workflow
+## Seeded Test Accounts
 
+The seeder populates the database with realistic team members and sample requests across all statuses:
+
+| Role | Name | Email | Password | Details |
+|---|---|---|---|---|
+| **Employee** | Eli | `employee@example.com` | `password` | Reports to Maya |
+| **Employee** | Emma | `employee2@example.com` | `password` | Reports to Maya |
+| **Employee** | Nina | `employee3@example.com` | `password` | Reports to Marcus (separate team) |
+| **Manager** | Maya | `manager@example.com` | `password` | Manages Eli and Emma |
+| **Manager** | Marcus | `manager2@example.com` | `password` | Manages Nina |
+| **Operations** | Olivia | `ops@example.com` | `password` | Operations queue |
+| **Operations** | Omar | `ops2@example.com` | `password` | Operations queue |
+
+---
+
+## Running the Automated Tests
+
+All tests run against an in-memory SQLite database (`:memory:`) configured in `phpunit.xml`, so running tests is fast and will not affect your MySQL development database.
+
+```bash
+# Run all 251 tests
+php artisan test
+
+# Run code style check (Laravel Pint)
+composer lint
+
+# Run static analysis (Larastan level 8)
+composer analyse
+
+# Run all checks at once
+composer check
 ```
-draft ─▶ submitted ─▶ approved ─▶ assigned ─▶ in_progress ─▶ completed   (final)
-  ▲          ├──────▶ rejected                                           (final)
-  └─ returned ◀─┘      (manager returns with a comment; employee edits and resubmits)
+
+---
+
+## The Workflow Lifecycle
+
+```text
+       ┌───────────┐
+       │   Draft   │ ◄───────┐
+       └─────┬─────┘         │
+             │ (submit)      │ (return with comment)
+             ▼               │
+       ┌───────────┐         │
+       │ Submitted ├─────────┤
+       └─────┬─────┴─────────┘
+             │ (approve)     │ (reject - final)
+             ▼               ▼
+       ┌───────────┐   ┌───────────┐
+       │ Approved  │   │ Rejected  │
+       └─────┬─────┘   └───────────┘
+             │ (assign)
+             ▼
+       ┌───────────┐
+       │ Assigned  │
+       └─────┬─────┘
+             │ (start work)
+             ▼
+       ┌───────────┐
+       │In Progress│
+       └─────┬─────┘
+             │ (complete)
+             ▼
+       ┌───────────┐
+       │ Completed │ (final)
+       └───────────┘
 ```
 
-Anything else is a **422** with a message such as
-`A request cannot move from 'assigned' to 'completed'. Allowed next status: 'in_progress'.`
+---
 
-## API at a glance
+## API Endpoints Summary
 
-Full detail: [`docs/openapi.yaml`](docs/openapi.yaml) (OpenAPI 3) or the Postman collection.
-
-| Method | Endpoint | Who | Purpose |
+| Method | Endpoint | Allowed Role | Purpose |
 |---|---|---|---|
-| POST | `/api/login` | anyone | Issue a Bearer token (rate limited) |
-| GET / POST | `/api/me`, `/api/logout` | any | Current user / revoke token |
-| POST | `/api/requests` | Employee | Create as draft, or `"submit": true` to send it straight away |
-| GET | `/api/requests` | all | List, **scoped to the role**; `search`, `status`, `priority`, `category`, `overdue`, `sort`, `direction`, `per_page`, `page` |
-| GET | `/api/requests/{id}` | all (policy) | Details with comments and activity history |
-| PUT | `/api/requests/{id}` | Employee | Edit a draft or returned request |
-| POST | `/api/requests/{id}/submit` | Employee | Send for manager review |
-| POST | `/api/requests/{id}/decision` | Manager | `approve` / `reject` / `return` (+ comment) |
-| POST | `/api/requests/{id}/assign` | Operations | Assign an owner |
-| POST | `/api/requests/{id}/status` | Operations | Move to `in_progress` or `completed` |
-| POST | `/api/requests/{id}/comments` | Participants | Add a comment |
-| GET | `/api/requests/{id}/activities` | Participants | The audit trail, paginated *(added)* |
-| GET / POST | `/api/notifications`, `/api/notifications/read` | any | My in-app notifications *(added)* |
-
-**Response standards.** Always JSON, even for errors and even without an `Accept` header. Successful payloads are
-`{"data": …}`; lists add `links` and `meta`. Every error is `{"message": "…", "code": "…"}` (plus `errors` for
-validation). Codes: `401 unauthenticated|invalid_credentials`, `403 forbidden`, `404 not_found`,
-`422 validation_failed|invalid_transition|request_not_editable|request_final`, `429 too_many_requests`.
-
-**Who sees what.** Employee: their own requests. Manager: non-draft requests of their direct reports. Operations:
-requests from `approved` onwards (never rejected ones).
+| `POST` | `/api/login` | Anyone | Authenticate and receive Sanctum Bearer token |
+| `GET` | `/api/me` | Authenticated | View current authenticated user details |
+| `POST` | `/api/logout` | Authenticated | Revoke current token |
+| `POST` | `/api/requests` | Employee | Create draft request (or submit directly with `"submit": true`) |
+| `GET` | `/api/requests` | All | List requests (scoped by role with filters, search, and pagination) |
+| `GET` | `/api/requests/{id}` | Participants | View full request details with comments and history |
+| `PUT` | `/api/requests/{id}` | Employee | Edit request details (only when in `draft` or `returned` status) |
+| `POST` | `/api/requests/{id}/submit` | Employee | Submit draft request for manager review |
+| `POST` | `/api/requests/{id}/decision` | Manager | Approve, reject, or return a request with a comment |
+| `POST` | `/api/requests/{id}/assign` | Operations | Assign an approved request to an operations owner |
+| `POST` | `/api/requests/{id}/status` | Operations | Update request status to `in_progress` or `completed` |
+| `POST` | `/api/requests/{id}/comments` | Participants | Post a discussion comment |
+| `GET` | `/api/requests/{id}/activities` | Participants | View the chronological audit trail |
+| `GET` | `/api/notifications` | Authenticated | View user's in-app notifications |
 
 ---
 
-## Notifications
+## Assumptions & Design Decisions
 
-Each status change dispatches a queued job (`SendRequestStatusNotification`) **after the database commit**. The job
-sends a database notification and an e-mail to the right people (never to the person who made the change):
+Where the assignment brief was silent, I made the following decisions:
 
-| Change | Who is told |
-|---|---|
-| submitted | the requester's manager |
-| approved | the requester and every operations user |
-| rejected / returned | the requester |
-| assigned | the new owner and the requester |
-| in progress | the requester |
-| completed | the requester and their manager |
-
-Locally `QUEUE_CONNECTION=database` and `MAIL_MAILER=log`: run `php artisan queue:work`, then read the e-mails in
-`storage/logs/laravel.log` and the in-app ones at `GET /api/notifications`. Set `NOTIFICATIONS_ENABLED=false` to switch it off.
-
-## Project layout
-
-```
-app/Enums/                RequestStatus (the transition map), Role, DecisionAction, …
-app/Services/             RequestWorkflow (the only place state changes), RequestRecipients
-app/Policies/             ServiceRequestPolicy: who may do what
-app/Http/                 thin controllers · Form Requests · API Resources
-app/Jobs, Notifications/  queued notification pipeline
-app/Exceptions/           WorkflowException (422) · ApiExceptionRenderer (one JSON error shape)
-database/                 migrations (with indexes), factories, seeders
-routes/api.php            routes + the policy for each one: read it as the permission matrix
-tests/Unit, tests/Feature
-docs/                     OpenAPI, Postman, architecture note, AI/references note
-```
+1. **Explicit `assigned` status:** Added between `approved` and `in_progress` to cleanly mirror the requirement of assigning work before starting it.
+2. **Manager boundaries:** Managers can only see and review requests submitted by employees who have them listed as their `manager_id`. They cannot approve requests from other teams.
+3. **Operations queue:** Operations staff see all requests from `approved` onwards. Any operations member can claim, assign, or re-assign a request to ensure team flexibility.
+4. **Final states:** `rejected` and `completed` are final states. Requests in these statuses cannot be updated, transitioned, or commented on.
+5. **Mandatory decision comments:** When a manager rejects or returns a request, a comment explaining why is mandatory so the employee understands what to fix.
+6. **Consistent JSON responses:** All responses follow a unified structure:
+   - Success: `{"data": ...}` (with pagination `links` and `meta` on lists)
+   - Errors: `{"message": "...", "code": "...", "errors": {...}}`
+   Even if a client forgets to send `Accept: application/json`, the API always responds in JSON rather than HTML.
+7. **Concurrency protection:** Database transactions with `lockForUpdate` are used during status transitions so multiple concurrent actions cannot corrupt request history.
 
 ---
 
-## Assumptions and decisions (where the brief was silent)
+## What I Learned & What I Would Do Next
 
-1. **An explicit `assigned` status** sits between `approved` and `in_progress`, matching the "Assign owner → Work in progress" journey.
-2. **403 vs 422.** *Not allowed for you* (wrong role or team, or you can't see it) is **403**. *Not possible right now* (wrong state: approving twice, editing a submitted request, anything on a final request) is **422**. Authorisation runs before validation, so an unauthorised caller never learns the payload rules.
-3. **Rejecting or returning requires a comment**; approving doesn't. Decision comments live on the activity row (who, when, comment) rather than being duplicated as discussion comments.
-4. **Drafts are private**: a manager can't see or act on a draft until it is submitted. Operations never see requests still in review, returned or rejected.
-5. **Any operations user can start/complete any visible request** (a shared queue), and can **re-assign** while `assigned` / `in_progress`. Tightening this to "only the assignee completes" is a one-line change in `ServiceRequestPolicy::changeStatus`. The assignee must be an operations user (422 otherwise).
-6. **Comments**: anyone who can see the request may comment; comments are closed once a request is final (rejected / completed), to honour "final and cannot be changed".
-7. **Only employees create requests.** "Direct reports" means one level (`users.manager_id`), not the whole subtree. An employee with no manager can submit, but nobody can approve it (see next steps).
-8. **Hidden resources**: a request you may not see returns **403**, not 404 (the brief lists 403 for forbidden actions). IDs are sequential, so hiding existence would add little.
-9. **PUT accepts partial updates** (at least one field). Unchanged values aren't logged.
-10. **SLA**: due date = approval time + hours by priority (urgent 8 · high 24 · medium 72 · low 120, calendar hours, in `config/service_requests.php`). `is_overdue` = past due and not final.
-11. **Tokens expire after 24 h** (`SANCTUM_TOKEN_EXPIRATION`); login is limited to 5 attempts/min per e-mail+IP; the API to 60 requests/min per user (or IP).
-12. **Notifications** are one queued job per change that notifies all recipients. Simple and atomic to dispatch, but a mail failure retries the whole job, so a recipient could occasionally get a duplicate (at-least-once delivery).
+Building this assignment was a great hands-on experience in structuring clean, testable Laravel applications. If I were extending this project further for production, I would:
 
-## What I verified, and what I didn't
+* **File Attachments:** Allow employees to upload receipts, screenshots, or error logs to their requests (using Laravel Storage / S3).
+* **Fallback Approver Hierarchy:** Support multi-level approvals or backup managers when a primary manager is out of office.
+* **Business-Hours SLA:** Enhance SLA calculations to only count working hours (e.g., 9 AM – 5 PM Monday–Friday) and exclude company holidays.
+* **Email Provider Integration:** Connect with Mailgun/SES and add webhook handling for email notifications.
+* **Docker Setup:** Add a clean `docker-compose.yml` for zero-install containerized deployment.
 
-* ✅ 251 tests pass; Pint and Larastan level 8 are clean; `migrate:fresh --seed` works; I also ran the API over real HTTP with a real queue worker (that caught a missing `notifications` table and two other bugs before the tests existed).
-* ✅ **Mutation check:** I deliberately broke the code in 24 ways (drop the transaction, remove the direct-report check, loosen the transition map, skip eager loading, …); the suite caught all 24.
-* ⚠️ **Only run on SQLite.** The queries are portable (`LIKE … ESCAPE`, JSON columns, FKs), but I did not run MySQL/PostgreSQL. Note `lockForUpdate()` is a no-op on SQLite, so the row-lock itself is untested; the re-read-inside-the-transaction behaviour is.
-* ⚠️ No Docker/Sail setup (optional stretch goal, skipped on purpose to keep the core solid), and the GitHub Actions workflow in `.github/` has not been executed.
+---
 
-## What I would do next
+## Documentation Links
 
-* **Fallback approver**: employees without a manager (or whose manager is away) currently can't get approval.
-* Per-recipient notification jobs (isolated retries), notification preferences, "mark one as read".
-* File attachments, business-hours SLAs, escalation of overdue requests via the scheduler.
-* An `abilities` block on each response (`can_edit`, `can_decide`, …) so a client can show/hide buttons without re-implementing rules.
-* ETag / optimistic locking on `PUT`, cursor pagination for very large lists.
-* CI matrix on MySQL and PostgreSQL; Docker/Sail; contract tests generated from the OpenAPI file.
+* **Architecture Note:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+* **AI Usage & References:** [`docs/AI_AND_REFERENCES.md`](docs/AI_AND_REFERENCES.md)
+* **Postman Collection:** [`docs/postman_collection.json`](docs/postman_collection.json)
+* **OpenAPI Specification:** [`docs/openapi.yaml`](docs/openapi.yaml)

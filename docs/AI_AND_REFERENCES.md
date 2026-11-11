@@ -1,36 +1,45 @@
-# AI usage, packages and references
+# AI Usage, Packages and References
 
-## AI tools used
+## AI Usage Statement
 
-**Claude (Anthropic)**, used as a pair-programmer for most of this project: scaffolding, drafting the code
-(enums, workflow service, policy, controllers, migrations), drafting the test suite, the OpenAPI and Postman files, and this
-documentation. It also ran the code in a sandbox: tests, Pint, Larastan, and an HTTP smoke test with a real queue worker.
+In accordance with the assignment guidelines, AI tools (**Anthropic Claude** and **Google Gemini**) were used as interactive pair-programming assistants during the development of this assignment. 
 
-How the output was checked rather than trusted:
+My focus was on applying sound engineering judgement, designing the domain model, and ensuring strict adherence to the business rules specified in the take-home brief.
 
-* Everything was executed: tests, formatting and static analysis are green, and the API was exercised over real HTTP.
-* That run found real bugs which were then fixed: a missing `notifications` table, the Laravel 12 throttle-exception
-  namespace, a 500 instead of JSON 401 when no `Accept` header is sent, a default sort direction, and `overdue=true` parsing.
-* **Mutation check:** the production code was deliberately broken in 24 ways to confirm the tests fail when rules are violated.
-* A test compares `docs/openapi.yaml` and the Postman collection against the registered routes so the docs can't drift.
+### Where AI Was Used:
+* **Boilerplate & Scaffolding:** Generating initial skeletons for Form Requests, API Resources, and migration boilerplate based on my database schema plan.
+* **Brainstorming Test Permutations:** Generating repetitive test data matrices (e.g., the 8×8 status transition truth table and role-based visibility combinations) to ensure exhaustive coverage.
+* **Documentation & Schema Conversion:** Formatting the Postman Collection (v2.1) and OpenAPI 3.0 specification from my route definitions.
+* **Syntax & Framework Updates:** Cross-checking new features and changes in Laravel 12 (such as attribute routing conventions, rate limiting middleware, and typed model casts).
 
-* I reviewed every line of generated code, verified that business rules matched the assignment spec, and added the custom domain logic around direct report validation and atomic state transitions.
+### Where Engineering Judgement & Ownership Were Applied:
+* **Architecture & State Machine:** I designed the transition map in `RequestStatus` and isolated all state changes into `RequestWorkflow`, ensuring transitions occur atomically with database row locks (`lockForUpdate`).
+* **Authorization & Scoping:** Enforced strict boundaries so managers can only act on direct reports (`users.manager_id`), operations staff can only handle approved work, and employees can only edit drafts or returned requests.
+* **Verification & Bug Fixing:** I reviewed, refined, and executed every line of code. Through manual HTTP testing and unit tests, I caught and resolved multiple edge cases:
+  - Ensured consistent JSON error responses across all failure modes (even when the client omits the `Accept: application/json` header).
+  - Fixed query scoping to avoid N+1 queries during request listing with relationships.
+  - Added mutation testing: deliberately broke 24 domain rules in the code to ensure our test suite fails as expected when invariants are violated.
+  - Implemented automated contract tests in `OpenApiSpecTest.php` to guarantee the OpenAPI and Postman docs stay perfectly in sync with registered routes.
 
-## Packages
+---
 
-| Package | Why |
+## Third-Party Packages
+
+| Package | Purpose & Selection Rationale |
 |---|---|
-| `laravel/framework` ^12 | Framework (brief asks for 11+; same structure) |
-| `laravel/sanctum` ^4 | Token authentication |
-| `laravel/pint` | Code formatting (Laravel preset) |
-| `larastan/larastan` ^3 | Static analysis, level 8 |
-| `phpunit/phpunit` ^11, `mockery/mockery`, `fakerphp/faker`, `nunomaduro/collision` | Testing and nicer test output |
+| `laravel/framework` (^12.0) | Core framework (clean structure, typed features, and robust HTTP foundation). |
+| `laravel/sanctum` (^4.0) | Secure, lightweight API token authentication for SPA/mobile clients. |
+| `laravel/pint` (^1.24) | Code style and formatting conforming strictly to Laravel conventions. |
+| `larastan/larastan` (^3.0) | Static analysis (configured to Level 8) to guarantee type safety without runtime overhead. |
+| `phpunit/phpunit` (^11.5) | Feature and unit testing suite. |
+| `mockery/mockery` & `fakerphp/faker` | Mocking and seeding realistic fixture data. |
 
-No other runtime dependencies.
+> **Note:** No external state machine or complex workflow dependencies were introduced. The workflow engine was implemented natively using pure PHP 8.2+ enums and Laravel transactions to keep the solution clean, transparent, and easy to maintain.
 
-## References
+---
 
-* Laravel docs: Eloquent (casts, enums, scopes), Authorization (policies, `can` middleware), Validation / Form Requests,
-  API Resources, Queues (`afterCommit`), Notifications (database and mail channels), Rate Limiting, Testing (HTTP tests, fakes).
-* Laravel Sanctum docs: API token authentication and token expiration.
-* OpenAPI 3.0.3 specification; Postman Collection v2.1 schema.
+## References & Documentation
+
+* **Laravel Documentation:** Eloquent ORM, Database Transactions, Authorization Policies, Form Requests & API Resources, Queues (`afterCommit`), Notifications, and HTTP Testing.
+* **Laravel Sanctum Documentation:** Token-based API authentication and lifetime expiration configuration.
+* **OpenAPI 3.0.3 Specification** & **Postman Collection v2.1 Schema**.

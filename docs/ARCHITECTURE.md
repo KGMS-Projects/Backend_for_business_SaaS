@@ -1,52 +1,55 @@
-# Architecture note
+# Architecture Note
 
-## Shape
+This short note explains the key architectural decisions, structure, and trade-offs made in building the Service Request & Approval API.
 
-```
-HTTP ─▶ routes/api.php ──(->can(...))──▶ ServiceRequestPolicy      who may do this?        → 403
-              │
-              ▼
-        Form Request                                                is the input valid?     → 422 validation_failed
-              │
-              ▼
-        Controller (thin) ──▶ RequestWorkflow ──▶ RequestStatus     is it legal *now*?      → 422 invalid_transition
-                                   │                                (single transition map)
-                                   ├─▶ DB transaction: lock row → change status → write activity row
-                                   └─▶ after commit: SendRequestStatusNotification (queued)
-```
+---
 
-Three questions, three places, three outcomes. That separation is the main idea of the design.
+## 1. Application Structure & Request Lifecycle
 
-## Key decisions and trade-offs
+To keep the application clean and easy to maintain, each incoming request is handled through four simple layers:
 
-**1. The lifecycle lives in one enum.** `RequestStatus::allowedTransitions()` is the only definition of legal moves;
-policies, the service and the API all ask it. A new status (say `on_hold`) is one enum case and one `match` arm,
-and an exhaustive 8×8 test fails until the matrix is updated on purpose. *Trade-off:* an enum + service is lighter than
-a state-machine package or one class per state; if transitions grow their own side effects, the state-class pattern
-would be worth the extra code.
+1. **Routing & Authorization (`routes/api.php` & `ServiceRequestPolicy`):**  
+   Before processing any request body, Laravel Policies check whether the authenticated user has permission for that action (e.g. only managers can call `/decision`, only employees can call `/submit`). If unauthorized, it immediately halts with a `403 Forbidden`.
+2. **Input Validation (`FormRequest` classes):**  
+   Validates required fields, formats, and allowed values. Invalid payloads fail with a `422 Unprocessable Content` response containing specific field errors.
+3. **Workflow Logic (`RequestWorkflow` service):**  
+   Controllers stay thin and delegate all business logic to `RequestWorkflow`. This service verifies that the status change is valid for the request's current state.
+4. **Database & Audit Trail (`DB::transaction`):**  
+   The status update and activity log creation are executed inside a single database transaction. This guarantees that an activity log entry is never created without the status update (and vice-versa).
 
-**2. All writes go through `RequestWorkflow`, one transaction per action.** It re-reads the row under
-`lockForUpdate`, checks the rule, changes the status and **writes the audit row in the same transaction**, so history
-cannot diverge from state. Two people approving at once are serialised and the second gets a clean 422 (a stale-copy test
-proves the service doesn't trust the object it was handed). *Trade-off:* pessimistic locks are simple and correct at
-this scale; very hot rows would favour optimistic locking.
+---
 
-**3. Authorisation is declared on the routes** (`->can('decide', 'serviceRequest')`), so it runs *before* body
-validation and `routes/api.php` doubles as the permission matrix. Visibility is defined twice, as a query scope for lists and
-a policy rule for single records, and a test asserts the two agree for every role × status.
+## 2. Key Design Decisions & Trade-offs
 
-**4. Notifications are asynchronous and transactional.** A queued job is dispatched `afterCommit`, so nobody is told
-about a change that rolled back, and the API never waits for a mail server. *Trade-off:* one job per change (not per
-recipient) gives at-least-once delivery and the occasional duplicate on retry; per-recipient jobs are the upgrade path.
+### Centralized State Machine with PHP Enums
+* **Decision:** All valid statuses and transitions are defined in `App\Enums\RequestStatus` using PHP 8.2 backed enums and `match` expressions.
+* **Why:** This avoids scattered `if/else` checks throughout the codebase. Any attempt to make an illegal transition (e.g. moving directly from `draft` to `completed`) is caught in one place and rejected with a clear `422` error.
+* **Trade-off:** For a service with 8 statuses, an enum-based state machine is clean, readable, and native to Laravel without needing third-party state machine packages.
 
-**5. Data model built for the real queries.** Composite indexes match the access paths: `(requester_id, status)`,
-`(assignee_id, status)`, `(status, created_at)`, `due_at`. Lists eager-load their relations (a test asserts the query
-count doesn't grow with the page), sort columns are whitelisted, and the manager scope uses a sub-select on the indexed
-`manager_id` instead of loading ids into PHP. `request_activities` is append-only (no `updated_at`).
+### Atomic Updates & Concurrency Control
+* **Decision:** Status updates use `lockForUpdate` within a database transaction.
+* **Why:** If two users attempt to approve or update the same request simultaneously, the row lock prevents race conditions and ensures the second user receives an invalid transition error instead of corrupting the history.
 
-**6. One error envelope.** A single renderer maps every exception under `/api` to `{message, code[, errors]}` with the
-right status, whatever the `Accept` header. Clients can switch on `code`, not on message text.
+### Asynchronous Queued Notifications
+* **Decision:** State transitions dispatch a queued notification job (`SendRequestStatusNotification`) configured with `afterCommit`.
+* **Why:** Notifications run asynchronously in the background so API responses remain fast. Using `afterCommit` ensures notifications are only dispatched if the database transaction commits successfully.
 
-## Deliberately left out
-Attachments, Docker/Sail, user management, a fallback approver, and non-SQLite verification (see README). I preferred a
-smaller core that is fully tested over a larger one that is half-finished.
+### Consistent JSON Error Envelope
+* **Decision:** All API responses and errors are intercepted to return a unified JSON structure:
+  ```json
+  {
+    "message": "Human readable explanation",
+    "code": "error_code",
+    "errors": {}
+  }
+  ```
+* **Why:** Frontend clients can reliably parse errors and display appropriate user messages based on the `code` field, even if the client omits the `Accept: application/json` header.
+
+---
+
+## 3. Deliberately Left Out & Future Improvements
+
+To focus on delivering a high-quality, fully-tested core within the take-home timeframe, the following features were left for future iteration:
+* **File Attachments:** Allowing users to attach receipts or documents to service requests.
+* **Multi-Tier Approvals:** Supporting approval chains for organizations where large requests require secondary approval.
+* **Working-Hours SLA Calculation:** Adjusting SLA deadlines to account for company work schedules, weekends, and holidays.
