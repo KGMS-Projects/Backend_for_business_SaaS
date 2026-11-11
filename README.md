@@ -2,7 +2,7 @@
 
 > **Quantix - Laravel Internship Take-Home Assignment**  
 > Candidate Submission: Service Request & Approval API for a Business SaaS Platform  
-> Built with **Laravel 12** · **PHP 8.2+** · **MySQL / SQLite** · **Laravel Sanctum** · **PHPUnit**
+> Built with **Laravel 12** · **PHP 8.2+** · **MySQL / SQLite** · **Docker** · **Laravel Sanctum** · **PHPUnit**
 
 ---
 
@@ -23,36 +23,60 @@ The API supports three distinct user roles with strict permissions:
 * **Role-Based Authorization:** Custom Laravel Policies enforce who can see and modify each request. Managers can only view and act on their own direct reports' requests.
 * **Audit Trail & Activity Log:** Every state change, edit, and comment is automatically logged with the actor, previous state, new state, and timestamp.
 * **Asynchronous Notifications:** Queued notification jobs run after database commits to send alerts to the right users on status updates.
-* **SLA Tracking:** Approved requests calculate an SLA deadline based on priority (Urgent: 8h, High: 24h, Medium: 72h, Low: 120h), with an automated overdue flag.
-* **Comprehensive Testing:** 251 automated feature & unit tests covering the happy path, edge cases, permission checks, and validation rules.
+* **SLA Tracking (Stretch Goal):** Approved requests calculate an SLA deadline based on priority (Urgent: 8h, High: 24h, Medium: 72h, Low: 120h), with an automated overdue flag.
+* **API Rate Limiting (Stretch Goal):** Login throttle (5/min) and API request rate limiting (60/min) per user.
+* **Docker Setup (Stretch Goal):** Full containerized environment with `Dockerfile` and `docker-compose.yml` for 1-command startup.
+* **Comprehensive Testing:** 246 automated feature & unit tests covering the happy path, edge cases, permission checks, and validation rules.
 * **Interactive Documentation:** Ready-to-use Postman Collection (`docs/postman_collection.json`) and OpenAPI 3.0 specification (`docs/openapi.yaml`).
 
 ---
 
 ## Quick Setup Guide
 
-### Prerequisites
+You can run this project either via **Docker** (Option 1) or **Locally** (Option 2).
+
+---
+
+### Option 1: Docker (One Command, Zero Setup)
+
+If you have Docker Desktop installed, you can spin up the entire application (Laravel app + MySQL 8.0) with automated migrations and seeders in a single command:
+
+```bash
+docker compose up -d
+```
+
+* **API Server:** `http://localhost:8000`
+* **MySQL:** Running on port `3306` (database: `service_requests`, user: `root`, password: `secret`)
+
+To stop containers:
+```bash
+docker compose down
+```
+
+---
+
+### Option 2: Local Setup (without Docker)
+
+#### Prerequisites
 * **PHP 8.2+** with extensions: `pdo_mysql` (or `pdo_sqlite`), `mbstring`, `zip`, `curl`
 * **Composer**
 * **MySQL** (via XAMPP, Laragon, or standalone) or **SQLite**
 
----
-
-### Step 1: Install Dependencies
+#### Step 1: Install Dependencies
 ```bash
 composer install
 ```
 
-### Step 2: Configure Environment
+#### Step 2: Configure Environment
 Copy `.env.example` to `.env` and generate the app key:
 ```bash
 cp .env.example .env
 php artisan key:generate
 ```
 
-### Step 3: Choose Your Database
+#### Step 3: Choose Your Database
 
-#### Option A: MySQL (Default in `.env`)
+##### Using MySQL (Default in `.env`)
 1. Ensure your MySQL server is running (e.g., via XAMPP Control Panel).
 2. Configure your credentials in `.env`:
    ```env
@@ -63,30 +87,26 @@ php artisan key:generate
    DB_USERNAME=root
    DB_PASSWORD=
    ```
-3. Run migrations and seed data:
+3. Run migrations and seed sample data:
    ```bash
    php artisan migrate:fresh --seed
    ```
    *(If prompted that `service_requests` does not exist, type **yes** and Laravel will create it for you).*
 
-#### Option B: SQLite (Zero configuration)
+##### Using SQLite (Zero configuration)
 ```bash
 touch database/database.sqlite
 # Set DB_CONNECTION=sqlite in .env
 php artisan migrate:fresh --seed
 ```
 
----
-
-### Step 4: Start the Server & Queue Worker
-
-Run the local development server:
+#### Step 4: Start the Server & Queue Worker
 ```bash
 php artisan serve
 ```
 The API is now running at `http://localhost:8000`.
 
-*(Optional)* In a second terminal, run the queue worker to process asynchronous notifications:
+*(Optional)* In a second terminal, process queued background notifications:
 ```bash
 php artisan queue:work
 ```
@@ -111,10 +131,10 @@ The seeder populates the database with realistic team members and sample request
 
 ## Running the Automated Tests
 
-All tests run against an in-memory SQLite database (`:memory:`) configured in `phpunit.xml`, so running tests is fast and will not affect your MySQL development database.
+All tests run against an in-memory SQLite database (`:memory:`) configured in `phpunit.xml`, so running tests is instant and will not touch your MySQL development database.
 
 ```bash
-# Run all 251 tests
+# Run all tests
 php artisan test
 
 # Run code style check (Laravel Pint)
@@ -123,7 +143,7 @@ composer lint
 # Run static analysis (Larastan level 8)
 composer analyse
 
-# Run all checks at once
+# Run all quality checks at once
 composer check
 ```
 
@@ -210,7 +230,6 @@ Building this assignment was a great hands-on experience in structuring clean, t
 * **Fallback Approver Hierarchy:** Support multi-level approvals or backup managers when a primary manager is out of office.
 * **Business-Hours SLA:** Enhance SLA calculations to only count working hours (e.g., 9 AM – 5 PM Monday–Friday) and exclude company holidays.
 * **Email Provider Integration:** Connect with Mailgun/SES and add webhook handling for email notifications.
-* **Docker Setup:** Add a clean `docker-compose.yml` for zero-install containerized deployment.
 
 ---
 
