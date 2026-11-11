@@ -29,3 +29,4 @@ EXPOSE 8000
 
 ENTRYPOINT ["entrypoint.sh"]
 CMD ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
+

@@ -19,3 +19,4 @@ php artisan migrate --force --seed
 
 # Execute container command (php artisan serve)
 exec "$@"
+
