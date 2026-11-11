@@ -2,7 +2,7 @@
 
 > **Quantix - Laravel Internship Take-Home Assignment**  
 > Candidate Submission: Service Request & Approval API for a Business SaaS Platform  
-> Built with **Laravel 12** · **PHP 8.2+** · **MySQL / SQLite** · **Laravel Sanctum** · **PHPUnit**
+> Built with **Laravel 12** · **PHP 8.2+** · **MySQL** · **Laravel Sanctum** · **PHPUnit**
 
 ---
 
@@ -34,7 +34,7 @@ The API supports three distinct user roles with strict permissions:
 ### Prerequisites
 * **PHP 8.2+** with extensions: `pdo_mysql` (or `pdo_sqlite`), `mbstring`, `zip`, `curl`
 * **Composer**
-* **MySQL** (via XAMPP, Laragon, or standalone) or **SQLite**
+* **MySQL** (via XAMPP, Laragon, or standalone) 
 
 ---
 
@@ -68,13 +68,6 @@ php artisan key:generate
    php artisan migrate:fresh --seed
    ```
    *(If prompted that `service_requests` does not exist, type **yes** and Laravel will create it for you).*
-
-#### Option B: SQLite (Zero configuration)
-```bash
-touch database/database.sqlite
-# Set DB_CONNECTION=sqlite in .env
-php artisan migrate:fresh --seed
-```
 
 ---
 
