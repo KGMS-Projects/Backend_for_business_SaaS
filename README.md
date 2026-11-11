@@ -2,7 +2,7 @@
 
 > **Quantix - Laravel Internship Take-Home Assignment**  
 > Candidate Submission: Service Request & Approval API for a Business SaaS Platform  
-> Built with **Laravel 12** · **PHP 8.2+** · **MySQL / SQLite** · **Docker** · **Laravel Sanctum** · **PHPUnit**
+> Built with **Laravel 12** · **PHP 8.2+** · **MySQL** · **Docker** · **Laravel Sanctum** · **PHPUnit**
 
 ---
 
@@ -93,12 +93,7 @@ php artisan key:generate
    ```
    *(If prompted that `service_requests` does not exist, type **yes** and Laravel will create it for you).*
 
-##### Using SQLite (Zero configuration)
-```bash
-touch database/database.sqlite
-# Set DB_CONNECTION=sqlite in .env
-php artisan migrate:fresh --seed
-```
+
 
 #### Step 4: Start the Server & Queue Worker
 ```bash
