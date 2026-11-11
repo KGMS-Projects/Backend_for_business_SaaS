@@ -21,5 +21,5 @@ A brief note on the references, third-party packages, and AI tools used for this
 ---
 
 ### 3. AI Usage
-* **AI Tools (Claude):** Used as a pair-programming assistant for generating repetitive test cases, formatting sample seed data, and quick syntax lookups for Laravel 12. 
+* **AI Tools (Claude):** Used as a programming assistant for generating repetitive test cases, formatting sample seed data, and quick syntax lookups for Laravel 12. 
 * All application architecture, database schemas, workflow state transitions, and business rules were designed, reviewed, and tested by me to ensure full compliance with the take-home requirements.
