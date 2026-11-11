@@ -1,0 +1,519 @@
+openapi: 3.0.3
+info:
+  title: Service Request & Approval API
+  version: 1.0.0
+  description: |
+    Backend for an internal service-request module: employees submit requests, managers approve /
+    reject / return them, operations assigns and completes them. Every request has a status, an owner
+    and a complete activity history.
+
+    **Authentication** — `POST /api/login` returns a Sanctum Bearer token; send it as `Authorization: Bearer <token>`.
+
+    **Errors** — every error is JSON with `message` and a machine-readable `code`
+    (`errors` is added for validation failures).
+    - `401` unauthenticated / invalid credentials
+    - `403` your role (or team) may not do this
+    - `404` unknown resource
+    - `422` validation failed **or** the request is in the wrong state for this action
+    - `429` rate limited
+
+    **Lifecycle**
+    ```
+    draft ─▶ submitted ─▶ approved ─▶ assigned ─▶ in_progress ─▶ completed (final)
+      ▲          ├──────▶ rejected (final)
+      └─ returned ◀─┘
+    ```
+servers:
+  - url: http://localhost:8000
+tags:
+  - name: Auth
+  - name: Requests
+  - name: Employee
+  - name: Manager
+  - name: Operations
+  - name: Collaboration
+security:
+  - bearerAuth: []
+paths:
+  /api/login:
+    post:
+      tags: [Auth]
+      summary: Issue an access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email, example: employee@example.com }
+                password: { type: string, example: password }
+                device_name: { type: string, maxLength: 100, example: postman }
+      responses:
+        '200':
+          description: Token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      token: { type: string, example: 1|abc123 }
+                      token_type: { type: string, example: Bearer }
+                      expires_at: { type: string, format: date-time, nullable: true }
+                      user: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/InvalidCredentials' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+  /api/me:
+    get:
+      tags: [Auth]
+      summary: The authenticated user
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/User' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+  /api/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke the current token
+      responses:
+        '204': { description: Token revoked }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+  /api/notifications:
+    get:
+      tags: [Collaboration]
+      summary: My in-app notifications (newest first)
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Notification' }
+                  links: { type: object }
+                  meta:
+                    type: object
+                    properties:
+                      current_page: { type: integer }
+                      per_page: { type: integer }
+                      total: { type: integer }
+                      unread: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+  /api/notifications/read:
+    post:
+      tags: [Collaboration]
+      summary: Mark all my notifications as read
+      responses:
+        '204': { description: Done }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+  /api/requests:
+    get:
+      tags: [Requests]
+      summary: List requests visible to me
+      description: |
+        Scoped by role: **employee** = own requests (drafts included); **manager** = non-draft requests of
+        direct reports; **operations** = requests from `approved` onwards (never rejected ones).
+        Default order is newest first; if `sort` is given without `direction`, ascending.
+      parameters:
+        - { name: search, in: query, schema: { type: string, maxLength: 100 }, description: 'Matches title or description (case-insensitive, wildcards are literal).' }
+        - { name: status, in: query, schema: { type: string }, example: 'approved,assigned', description: 'One or more statuses, comma separated (or status[]=... repeated).' }
+        - { name: priority, in: query, schema: { $ref: '#/components/schemas/Priority' } }
+        - { name: category, in: query, schema: { $ref: '#/components/schemas/Category' } }
+        - { name: overdue, in: query, schema: { type: boolean }, description: 'Only requests past their SLA deadline that are not finished.' }
+        - { name: sort, in: query, schema: { type: string, enum: [created_at, updated_at, due_at, title] } }
+        - { name: direction, in: query, schema: { type: string, enum: [asc, desc] } }
+        - { name: per_page, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 15 } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1 } }
+      responses:
+        '200':
+          description: A page of requests (without comments / activity)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/ServiceRequest' }
+                  links: { $ref: '#/components/schemas/PaginationLinks' }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    post:
+      tags: [Employee]
+      summary: Create a request (draft, or submit immediately)
+      description: "Employees only. Set `submit: true` to send it for manager review in the same call."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, description, category]
+              properties:
+                title: { type: string, maxLength: 150, example: New laptop }
+                description: { type: string, maxLength: 5000, example: My current laptop is five years old. }
+                category: { $ref: '#/components/schemas/Category' }
+                priority: { $ref: '#/components/schemas/Priority' }
+                submit: { type: boolean, default: false }
+      responses:
+        '201': { $ref: '#/components/responses/RequestDetail' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/requests/{id}:
+    parameters:
+      - { $ref: '#/components/parameters/RequestId' }
+    get:
+      tags: [Requests]
+      summary: Request details with comments and activity history
+      responses:
+        '200':
+          description: OK (includes `comments` and `activity`)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/ServiceRequestDetail' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Employee]
+      summary: Edit a draft or returned request
+      description: Only the requester, and only while the request is `draft` or `returned`. Partial updates are accepted; at least one field is required. Changes are written to the activity log.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: { type: string, maxLength: 150 }
+                description: { type: string, maxLength: 5000 }
+                category: { $ref: '#/components/schemas/Category' }
+                priority: { $ref: '#/components/schemas/Priority' }
+      responses:
+        '200': { $ref: '#/components/responses/RequestDetail' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationOrStateError' }
+  /api/requests/{id}/submit:
+    parameters:
+      - { $ref: '#/components/parameters/RequestId' }
+    post:
+      tags: [Employee]
+      summary: Send a draft or returned request for manager review
+      responses:
+        '200': { $ref: '#/components/responses/RequestDetail' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/StateError' }
+  /api/requests/{id}/decision:
+    parameters:
+      - { $ref: '#/components/parameters/RequestId' }
+    post:
+      tags: [Manager]
+      summary: Approve, reject or return a submitted request
+      description: Only the manager of the requester. `comment` is required for `reject` and `return`. Approving starts the SLA clock (`due_at`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [approve, reject, return] }
+                comment: { type: string, maxLength: 2000, example: Please add the budget code. }
+      responses:
+        '200': { $ref: '#/components/responses/RequestDetail' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationOrStateError' }
+  /api/requests/{id}/assign:
+    parameters:
+      - { $ref: '#/components/parameters/RequestId' }
+    post:
+      tags: [Operations]
+      summary: Assign (or re-assign) an owner
+      description: Operations users only. From `approved` the request moves to `assigned`; from `assigned` / `in_progress` the owner is changed and the status stays.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assignee_id]
+              properties:
+                assignee_id: { type: integer, description: 'Must be an operations user', example: 6 }
+                comment: { type: string, maxLength: 2000 }
+      responses:
+        '200': { $ref: '#/components/responses/RequestDetail' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationOrStateError' }
+  /api/requests/{id}/status:
+    parameters:
+      - { $ref: '#/components/parameters/RequestId' }
+    post:
+      tags: [Operations]
+      summary: Start or complete the work
+      description: Operations users only. `assigned → in_progress → completed`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [in_progress, completed] }
+                comment: { type: string, maxLength: 2000 }
+      responses:
+        '200': { $ref: '#/components/responses/RequestDetail' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationOrStateError' }
+  /api/requests/{id}/comments:
+    parameters:
+      - { $ref: '#/components/parameters/RequestId' }
+    post:
+      tags: [Collaboration]
+      summary: Add a comment
+      description: Anyone who can see the request. Not allowed once the request is final (`rejected` / `completed`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [body]
+              properties:
+                body: { type: string, maxLength: 2000 }
+      responses:
+        '201':
+          description: Comment added
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/Comment' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationOrStateError' }
+  /api/requests/{id}/activities:
+    parameters:
+      - { $ref: '#/components/parameters/RequestId' }
+    get:
+      tags: [Requests]
+      summary: Audit trail of one request (oldest first, paginated)
+      parameters:
+        - { name: per_page, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 15 } }
+        - { name: page, in: query, schema: { type: integer, minimum: 1 } }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/Activity' }
+                  links: { $ref: '#/components/schemas/PaginationLinks' }
+                  meta: { $ref: '#/components/schemas/PaginationMeta' }
+        '401': { $ref: '#/components/responses/Unauthenticated' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    RequestId:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer }
+  schemas:
+    Role: { type: string, enum: [employee, manager, operations] }
+    Status: { type: string, enum: [draft, submitted, returned, approved, rejected, assigned, in_progress, completed] }
+    Priority: { type: string, enum: [low, medium, high, urgent] }
+    Category: { type: string, enum: [it_support, equipment, maintenance, access] }
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        email: { type: string, format: email }
+        role: { $ref: '#/components/schemas/Role' }
+        manager_id: { type: integer, nullable: true }
+    ServiceRequest:
+      type: object
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        description: { type: string }
+        category: { $ref: '#/components/schemas/Category' }
+        priority: { $ref: '#/components/schemas/Priority' }
+        status: { $ref: '#/components/schemas/Status' }
+        status_label: { type: string, example: In progress }
+        is_final: { type: boolean }
+        due_at: { type: string, format: date-time, nullable: true, description: 'SLA deadline, set on approval' }
+        is_overdue: { type: boolean }
+        submitted_at: { type: string, format: date-time, nullable: true }
+        completed_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        requester: { $ref: '#/components/schemas/User' }
+        assignee: { allOf: [{ $ref: '#/components/schemas/User' }], nullable: true }
+    ServiceRequestDetail:
+      allOf:
+        - $ref: '#/components/schemas/ServiceRequest'
+        - type: object
+          properties:
+            comments:
+              type: array
+              items: { $ref: '#/components/schemas/Comment' }
+            activity:
+              type: array
+              items: { $ref: '#/components/schemas/Activity' }
+    Comment:
+      type: object
+      properties:
+        id: { type: integer }
+        body: { type: string }
+        author: { $ref: '#/components/schemas/User' }
+        created_at: { type: string, format: date-time }
+    Activity:
+      type: object
+      properties:
+        id: { type: integer }
+        type: { type: string, enum: [created, updated, transitioned, assigned, commented] }
+        from_status: { allOf: [{ $ref: '#/components/schemas/Status' }], nullable: true }
+        to_status: { allOf: [{ $ref: '#/components/schemas/Status' }], nullable: true }
+        comment: { type: string, nullable: true }
+        meta: { type: object, nullable: true, description: 'e.g. {changes}, {assignee_id, previous_assignee_id} or {comment_id}' }
+        actor: { $ref: '#/components/schemas/User' }
+        created_at: { type: string, format: date-time }
+    Notification:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        message: { type: string, example: Maya Manager approved "New laptop". }
+        request_id: { type: integer }
+        to_status: { $ref: '#/components/schemas/Status' }
+        read_at: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+    PaginationLinks:
+      type: object
+      properties:
+        first: { type: string, nullable: true }
+        last: { type: string, nullable: true }
+        prev: { type: string, nullable: true }
+        next: { type: string, nullable: true }
+    PaginationMeta:
+      type: object
+      properties:
+        current_page: { type: integer }
+        per_page: { type: integer }
+        total: { type: integer }
+        last_page: { type: integer }
+        from: { type: integer, nullable: true }
+        to: { type: integer, nullable: true }
+    Error:
+      type: object
+      required: [message, code]
+      properties:
+        message: { type: string }
+        code: { type: string, description: Machine-readable error code }
+    ValidationErrorBody:
+      allOf:
+        - $ref: '#/components/schemas/Error'
+        - type: object
+          properties:
+            errors:
+              type: object
+              additionalProperties: { type: array, items: { type: string } }
+  responses:
+    RequestDetail:
+      description: The request
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              data: { $ref: '#/components/schemas/ServiceRequest' }
+    Unauthenticated:
+      description: "Missing, invalid, expired or revoked token (`code: unauthenticated`)"
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { message: Authentication is required. Send a valid Bearer token., code: unauthenticated }
+    InvalidCredentials:
+      description: "Wrong e-mail or password (`code: invalid_credentials`)"
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: "Your role / team may not do this (`code: forbidden`)"
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { message: Only the requester's manager can review this request., code: forbidden }
+    NotFound:
+      description: "Unknown request (`code: not_found`)"
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ValidationError:
+      description: "Invalid input (`code: validation_failed`)"
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ValidationErrorBody' }
+    StateError:
+      description: |
+        The request is in the wrong state for this action. `code` is `invalid_transition`
+        (e.g. approving twice), `request_not_editable` or `request_final`.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { message: "A request cannot move from 'assigned' to 'completed'. Allowed next status: 'in_progress'.", code: invalid_transition }
+    ValidationOrStateError:
+      description: Invalid input (`validation_failed`) **or** the request is in the wrong state (`invalid_transition`, `request_not_editable`, `request_final`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ValidationErrorBody' }
+    TooManyRequests:
+      description: "Rate limited (`code: too_many_requests`); see the `Retry-After` header"
+      headers:
+        Retry-After: { schema: { type: integer } }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }

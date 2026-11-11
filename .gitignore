@@ -1,0 +1,96 @@
+# ==========================================
+# Laravel Framework & Composer
+# ==========================================
+/vendor/
+/composer.phar
+/auth.json
+
+# ==========================================
+# Environment Configuration & Secrets
+# ==========================================
+.env
+.env.backup
+.env.local
+.env.*.local
+.env.production
+.env.staging
+/storage/*.key
+
+# ==========================================
+# Database (SQLite local data)
+# ==========================================
+/database/*.sqlite
+/database/*.sqlite-journal
+
+# ==========================================
+# Storage & Cache Directories
+# (Keep directory structure via .gitignore)
+# ==========================================
+/storage/app/*
+!/storage/app/.gitignore
+/storage/app/public/*
+!/storage/app/public/.gitignore
+/storage/framework/cache/*
+!/storage/framework/cache/.gitignore
+/storage/framework/cache/data/*
+!/storage/framework/cache/data/.gitignore
+/storage/framework/sessions/*
+!/storage/framework/sessions/.gitignore
+/storage/framework/testing/*
+!/storage/framework/testing/.gitignore
+/storage/framework/views/*
+!/storage/framework/views/.gitignore
+/storage/logs/*
+!/storage/logs/.gitignore
+*.log
+
+# ==========================================
+# Testing & Static Analysis Caches
+# ==========================================
+.phpunit.cache/
+.phpunit.result.cache
+.phpstan.cache/
+.pest/
+
+# ==========================================
+# Frontend, Node & Builds
+# ==========================================
+/node_modules/
+/public/build/
+/public/hot
+/public/storage
+npm-debug.log*
+yarn-error.log*
+
+# ==========================================
+# Docker & Local Environment Overrides
+# ==========================================
+docker-compose.override.yml
+Homestead.json
+Homestead.yaml
+
+# ==========================================
+# IDEs & Code Editors
+# ==========================================
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.fleet/
+
+# ==========================================
+# Operating System Files
+# ==========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+[Dd]esktop.ini

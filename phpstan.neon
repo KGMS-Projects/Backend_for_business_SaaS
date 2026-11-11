@@ -1,0 +1,11 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    level: 8
+    paths:
+        - app
+        - bootstrap
+        - database
+        - routes
+    # config/ is excluded: it is Laravel's generated skeleton, not code written for this project.
