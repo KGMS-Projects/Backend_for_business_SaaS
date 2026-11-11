@@ -3,6 +3,9 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\AssignRequest;
+use App\Http\Requests\ChangeStatusRequest;
+use App\Http\Requests\DecisionRequest;
 use App\Http\Requests\ListServiceRequestsRequest;
 use App\Http\Requests\StoreServiceRequestRequest;
 use App\Http\Requests\UpdateServiceRequestRequest;
@@ -11,12 +14,9 @@ use App\Models\ServiceRequest;
 use App\Models\User;
 use App\Services\RequestWorkflow;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 
-/**
- * Who may call each endpoint is declared in routes/api.php (`->can(...)`), so by the time
- * code here runs, the caller is allowed. Business rules live in RequestWorkflow.
- */
 class ServiceRequestController extends Controller
 {
     public function __construct(private readonly RequestWorkflow $workflow) {}
@@ -29,9 +29,9 @@ class ServiceRequestController extends Controller
         $requests = ServiceRequest::query()
             ->visibleTo($user)
             ->filter($request->filters())
-            ->with(['requester', 'assignee']) // eager load: a page of N requests costs the same number of queries as one
+            ->with(['requester', 'assignee'])
             ->orderBy($request->sortColumn(), $request->sortDirection())
-            ->orderBy('id', $request->sortDirection()) // stable order for pagination
+            ->orderBy('id', $request->sortDirection())
             ->paginate($request->perPage())
             ->withQueryString();
 
@@ -61,6 +61,56 @@ class ServiceRequestController extends Controller
         $user = $request->user();
 
         return $this->respond($this->workflow->update($serviceRequest, $user, $request->requestData()));
+    }
+
+    public function submit(Request $request, ServiceRequest $serviceRequest): ServiceRequestResource
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        return $this->respond($this->workflow->submit($serviceRequest, $user));
+    }
+
+    public function decision(DecisionRequest $request, ServiceRequest $serviceRequest): ServiceRequestResource
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        return $this->respond($this->workflow->decide(
+            $serviceRequest,
+            $user,
+            $request->action(),
+            $request->validated('comment'),
+        ));
+    }
+
+    public function assign(AssignRequest $request, ServiceRequest $serviceRequest): ServiceRequestResource
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        /** @var User $assignee */
+        $assignee = User::query()->findOrFail($request->validated('assignee_id'));
+
+        return $this->respond($this->workflow->assign(
+            $serviceRequest,
+            $user,
+            $assignee,
+            $request->validated('comment'),
+        ));
+    }
+
+    public function status(ChangeStatusRequest $request, ServiceRequest $serviceRequest): ServiceRequestResource
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        return $this->respond($this->workflow->changeStatus(
+            $serviceRequest,
+            $user,
+            $request->targetStatus(),
+            $request->validated('comment'),
+        ));
     }
 
     private function respond(ServiceRequest $serviceRequest): ServiceRequestResource

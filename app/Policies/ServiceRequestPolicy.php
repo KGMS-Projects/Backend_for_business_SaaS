@@ -8,16 +8,7 @@ use App\Models\User;
 use Illuminate\Auth\Access\Response;
 
 /**
- * WHO may do WHAT. (Whether the request is in the right *state* is the workflow's job and
- * produces a 422; failing a check here produces a 403.)
- *
- * Visibility rules (mirrored for list queries by ServiceRequest::scopeVisibleTo):
- *   employee   -> requests they created
- *   manager    -> non-draft requests created by their direct reports
- *   operations -> requests from "approved" onwards (never rejected ones)
- *
- * Acting on a request always requires being able to see it, so a manager can never
- * act on another team's request and operations never touch requests still in review.
+ * Policy defining permissions for viewing, editing, and managing service requests.
  */
 class ServiceRequestPolicy
 {

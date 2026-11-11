@@ -13,9 +13,7 @@ return new class extends Migration
             $table->string('name');
             $table->string('email')->unique();
             $table->string('password');
-            // employee | manager | operations (see App\Enums\Role)
             $table->string('role', 20)->default('employee')->index();
-            // Org chart: a user's direct manager. Null for managers at the top and for operations staff.
             $table->foreignId('manager_id')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamps();
         });

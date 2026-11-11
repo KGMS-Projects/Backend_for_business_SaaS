@@ -17,20 +17,9 @@ use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
 /**
- * Every change to a request goes through here. It is the only place that
- *   1. checks the lifecycle rules (via RequestStatus),
- *   2. changes status / owner / timestamps,
- *   3. writes the audit-trail row, and
- *   4. schedules the notification.
- *
- * Each public method runs in ONE database transaction that first locks the request row, so
- * two people acting at the same moment are serialised: the second one sees the new status and
- * gets a clean 422 instead of corrupting the history. The status change and its activity row
- * commit (or roll back) together; the notification job is only dispatched after the commit.
- *
- * Authorisation (who may call these) is the policy's job and is checked before we get here.
+ * Handles service request workflow transitions, status updates, and activity logging.
  */
-final class RequestWorkflow
+class RequestWorkflow
 {
     /**
      * @param  array{title: string, description: string, category: string, priority?: string|null}  $data

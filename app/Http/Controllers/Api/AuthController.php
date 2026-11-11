@@ -6,7 +6,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\LoginRequest;
 use App\Http\Resources\UserResource;
 use App\Models\User;
-use App\Support\ApiError;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -19,9 +18,11 @@ class AuthController extends Controller
     {
         $user = User::query()->where('email', $request->validated('email'))->first();
 
-        // One generic message for "no such user" and "wrong password": don't reveal which e-mails exist.
         if (! $user || ! Hash::check($request->validated('password'), $user->password)) {
-            return ApiError::response(401, 'invalid_credentials', 'The provided credentials are incorrect.');
+            return response()->json([
+                'message' => 'The provided credentials are incorrect.',
+                'code' => 'invalid_credentials',
+            ], 401);
         }
 
         $expiration = config('sanctum.expiration');
@@ -49,11 +50,12 @@ class AuthController extends Controller
 
     public function logout(Request $request): Response
     {
-        $token = $request->user()?->currentAccessToken();
+        /** @var User $user */
+        $user = $request->user();
 
-        if ($token instanceof PersonalAccessToken) {
-            $token->delete();
-        }
+        /** @var PersonalAccessToken|null $token */
+        $token = $user->currentAccessToken();
+        $token?->delete();
 
         return response()->noContent();
     }

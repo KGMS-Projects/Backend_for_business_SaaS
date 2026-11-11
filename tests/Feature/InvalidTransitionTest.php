@@ -11,8 +11,7 @@ use Tests\Concerns\BuildsOrganisation;
 use Tests\TestCase;
 
 /**
- * The caller IS allowed to use the endpoint, but the request is in the wrong state: 422 with a clear message.
- * ('{ops}' in a payload is replaced by a real operations user id.)
+ * Tests that invalid status transitions return 422 Unprocessable Content.
  */
 class InvalidTransitionTest extends TestCase
 {

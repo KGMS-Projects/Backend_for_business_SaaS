@@ -13,10 +13,7 @@ use Tests\Concerns\BuildsOrganisation;
 use Tests\TestCase;
 
 /**
- * Every forbidden action must be a 403 (not a 404, not a 422), must change nothing,
- * and must be refused BEFORE the payload is validated, so the payloads below are deliberately empty.
- *
- * The request under test always belongs to $this->employee, whose manager is $this->manager.
+ * Tests that unauthorized actions return 403 Forbidden.
  */
 class AuthorizationTest extends TestCase
 {

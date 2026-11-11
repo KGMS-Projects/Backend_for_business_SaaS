@@ -73,6 +73,8 @@ Homestead.yaml
 # IDEs & Code Editors
 # ==========================================
 .idea/
+.postman/
+postman/
 .vscode/
 *.sublime-project
 *.sublime-workspace
