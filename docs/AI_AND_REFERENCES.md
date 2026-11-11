@@ -2,7 +2,7 @@
 
 ## AI Usage Statement
 
-In accordance with the assignment guidelines, AI tools (**Anthropic Claude** and **Google Gemini**) were used as interactive pair-programming assistants during the development of this assignment. 
+In accordance with the assignment guidelines, AI tools (**Anthropic Claude**) were used as interactive pair-programming assistants during the development of this assignment. 
 
 My focus was on applying sound engineering judgement, designing the domain model, and ensuring strict adherence to the business rules specified in the take-home brief.
 
